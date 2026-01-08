@@ -52,19 +52,6 @@ export default function UploadZone({
         }
     }, [onUpload, maxFiles]);
 
-    const handlePaste = useCallback((e: React.ClipboardEvent) => {
-        const items = Array.from(e.clipboardData.items);
-        const imageFiles = items
-            .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
-            .map(item => item.getAsFile())
-            .filter((file): file is File => Boolean(file));
-
-        if (imageFiles.length > 0) {
-            e.preventDefault();
-            onUpload(imageFiles.slice(0, maxFiles));
-        }
-    }, [onUpload, maxFiles]);
-
     return (
         <div className="flex flex-col space-y-3 w-full">
             <h3 className="text-lg font-semibold text-gray-800">{label}</h3>
@@ -73,7 +60,6 @@ export default function UploadZone({
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                onPaste={handlePaste}
                 className={`
           relative border-2 border-dashed rounded-xl p-8 transition-all flex flex-col items-center justify-center text-center cursor-pointer
           ${isDragging ? 'border-primary bg-primary/5' : 'border-gray-300 hover:border-primary/50 bg-white'}
@@ -84,7 +70,6 @@ export default function UploadZone({
                         inputRef.current?.click();
                     }
                 }}
-                tabIndex={0}
             >
                 <input
                     type="file"
