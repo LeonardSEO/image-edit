@@ -14,29 +14,71 @@ export default function Visualizer() {
     const [statusMessage, setStatusMessage] = useState('');
     const [error, setError] = useState<string | null>(null);
 
-    const readFileAsDataUrl = useCallback((file: File) => {
+    const readBlobAsDataUrl = useCallback((blob: Blob) => {
         return new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
             reader.onerror = () => reject(new Error('Uploaden mislukt'));
-            reader.readAsDataURL(file);
+            reader.readAsDataURL(blob);
         });
     }, []);
+
+    const loadImage = useCallback((dataUrl: string) => {
+        return new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new window.Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('Uploaden mislukt'));
+            img.src = dataUrl;
+        });
+    }, []);
+
+    const prepareImageDataUrl = useCallback(async (file: File) => {
+        const originalDataUrl = await readBlobAsDataUrl(file);
+        const img = await loadImage(originalDataUrl);
+        const maxDimension = Math.max(img.width, img.height);
+        const shouldResize = maxDimension > 1600 || file.size > 1_500_000;
+
+        if (!shouldResize) {
+            return originalDataUrl;
+        }
+
+        const scale = Math.min(1, 1600 / maxDimension);
+        const targetWidth = Math.max(1, Math.round(img.width * scale));
+        const targetHeight = Math.max(1, Math.round(img.height * scale));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return originalDataUrl;
+        }
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+        const blob = await new Promise<Blob>((resolve, reject) => {
+            canvas.toBlob((result) => {
+                if (result) resolve(result);
+                else reject(new Error('Uploaden mislukt'));
+            }, 'image/jpeg', 0.82);
+        });
+
+        return readBlobAsDataUrl(blob);
+    }, [loadImage, readBlobAsDataUrl]);
 
     const handleRoomUpload = useCallback(async (files: File[]) => {
         const file = files[0];
         if (!file) return;
         try {
-            const dataUrl = await readFileAsDataUrl(file);
+            const dataUrl = await prepareImageDataUrl(file);
             setRoomImage(dataUrl);
         } catch {
             setError('Uploaden mislukt');
         }
-    }, [readFileAsDataUrl]);
+    }, [prepareImageDataUrl]);
 
     const handleFloorUpload = useCallback(async (files: File[]) => {
         if (files.length === 0) return;
-        const results = await Promise.allSettled(files.map(readFileAsDataUrl));
+        const results = await Promise.allSettled(files.map(prepareImageDataUrl));
         const dataUrls = results
             .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
             .map(result => result.value);
@@ -53,7 +95,7 @@ export default function Visualizer() {
             });
             return next.slice(0, 3);
         });
-    }, [readFileAsDataUrl]);
+    }, [prepareImageDataUrl]);
 
     const getImageFilesFromClipboard = useCallback((event: ClipboardEvent) => {
         const items = Array.from(event.clipboardData?.items ?? []);
@@ -139,6 +181,9 @@ export default function Visualizer() {
 
             if (!response.ok || !response.body) {
                 const data = await response.json().catch(() => null);
+                if (response.status === 413) {
+                    throw new Error('Afbeeldingen zijn te groot. Gebruik kleinere bestanden.');
+                }
                 throw new Error(data?.error || 'Er is iets misgegaan');
             }
 
