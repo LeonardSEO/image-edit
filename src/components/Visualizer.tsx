@@ -32,17 +32,20 @@ export default function Visualizer() {
         });
     }, []);
 
-    const prepareImageDataUrl = useCallback(async (file: File) => {
+    const prepareImageDataUrl = useCallback(async (
+        file: File,
+        options: { maxDimension: number; quality: number; maxBytes: number }
+    ) => {
         const originalDataUrl = await readBlobAsDataUrl(file);
         const img = await loadImage(originalDataUrl);
         const maxDimension = Math.max(img.width, img.height);
-        const shouldResize = maxDimension > 1600 || file.size > 1_500_000;
+        const shouldResize = maxDimension > options.maxDimension || file.size > options.maxBytes;
 
         if (!shouldResize) {
             return originalDataUrl;
         }
 
-        const scale = Math.min(1, 1600 / maxDimension);
+        const scale = Math.min(1, options.maxDimension / maxDimension);
         const targetWidth = Math.max(1, Math.round(img.width * scale));
         const targetHeight = Math.max(1, Math.round(img.height * scale));
 
@@ -59,7 +62,7 @@ export default function Visualizer() {
             canvas.toBlob((result) => {
                 if (result) resolve(result);
                 else reject(new Error('Uploaden mislukt'));
-            }, 'image/jpeg', 0.82);
+            }, 'image/jpeg', options.quality);
         });
 
         return readBlobAsDataUrl(blob);
@@ -69,7 +72,11 @@ export default function Visualizer() {
         const file = files[0];
         if (!file) return;
         try {
-            const dataUrl = await prepareImageDataUrl(file);
+            const dataUrl = await prepareImageDataUrl(file, {
+                maxDimension: 1200,
+                quality: 0.7,
+                maxBytes: 900_000,
+            });
             setRoomImage(dataUrl);
         } catch {
             setError('Uploaden mislukt');
@@ -78,7 +85,13 @@ export default function Visualizer() {
 
     const handleFloorUpload = useCallback(async (files: File[]) => {
         if (files.length === 0) return;
-        const results = await Promise.allSettled(files.map(prepareImageDataUrl));
+        const totalFloorCount = floorImages.length + files.length;
+        const floorOptions = totalFloorCount > 2
+            ? { maxDimension: 1200, quality: 0.75, maxBytes: 900_000 }
+            : { maxDimension: 1400, quality: 0.82, maxBytes: 1_200_000 };
+        const results = await Promise.allSettled(
+            files.map((file) => prepareImageDataUrl(file, floorOptions))
+        );
         const dataUrls = results
             .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
             .map(result => result.value);
@@ -182,7 +195,10 @@ export default function Visualizer() {
             if (!response.ok || !response.body) {
                 const data = await response.json().catch(() => null);
                 if (response.status === 413) {
-                    throw new Error('Afbeeldingen zijn te groot. Gebruik kleinere bestanden.');
+                    const extraHint = floorImages.length > 2
+                        ? ' Of gebruik minder staalfoto\'s.'
+                        : '';
+                    throw new Error(`Afbeeldingen zijn te groot. Gebruik kleinere bestanden.${extraHint}`);
                 }
                 throw new Error(data?.error || 'Er is iets misgegaan');
             }
@@ -449,6 +465,9 @@ export default function Visualizer() {
                                     <span>Nieuwe sfeerfoto</span>
                                 </button>
                             </div>
+                            <p className="text-sm text-gray-500 text-center">
+                                Niet tevreden met het resultaat? Klik op &quot;Probeer opnieuw&quot; voor een nieuwe versie.
+                            </p>
                             {error && (
                                 <p className="text-red-500 font-medium text-center">{error}</p>
                             )}
